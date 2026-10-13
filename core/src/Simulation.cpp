@@ -17,6 +17,8 @@ const double kSwornAllyFloor = 25, kSwornEnemyCeiling = -25;
 // Share of a battle's cost that comes back with each surviving squad.
 const double kSurvivorRefund = 0.5;
 
+std::string squadCount(size_t n) { return toString(n) + (n == 1 ? " squad" : " squads"); }
+
 } // namespace
 
 Simulation::Simulation(IWorld& world, Log& log)
@@ -132,6 +134,7 @@ void Simulation::tick(double days)
 	updateWars(days);
 	processQueue();
 	planAttacks(days);
+	defendTowns();
 	easeWeariness(days);
 	state_.rngState = rng_.state();
 }
@@ -190,7 +193,7 @@ double Simulation::distance(const WorldTown& a, const WorldTown& b) const
 	return std::sqrt(dx * dx + dy * dy);
 }
 
-const WorldTown* Simulation::nearestOwnTown(const FactionId& f, const WorldTown& target) const
+const WorldTown* Simulation::nearestOwnTown(const FactionId& f, const WorldTown& target, const WorldTown* exclude) const
 {
 	std::map<FactionId, std::vector<size_t> >::const_iterator it = townsByOwner_.find(f);
 	if (it == townsByOwner_.end()) return 0;
@@ -199,10 +202,20 @@ const WorldTown* Simulation::nearestOwnTown(const FactionId& f, const WorldTown&
 	for (size_t i = 0; i < it->second.size(); ++i)
 	{
 		const WorldTown& t = towns_[it->second[i]];
+		if (exclude && t.id == exclude->id) continue;
 		double d = distance(t, target);
 		if (!best || d < bestD) { best = &t; bestD = d; }
 	}
 	return best;
+}
+
+double Simulation::distanceToNearestTown(const FactionId& f, double x, double y) const
+{
+	WorldTown here;
+	here.x = x;
+	here.y = y;
+	const WorldTown* t = nearestOwnTown(f, here);
+	return t ? distance(*t, here) : 0;
 }
 
 // ---- queries -----------------------------------------------------------------
@@ -237,6 +250,12 @@ int Simulation::offenseCapacity() const
 {
 	const Settings& s = config_.settings;
 	return (int)std::floor(s.maxWarSquads * (1.0 - s.defenseReserve));
+}
+
+double Simulation::garrisonStrength(const WorldTown& t) const
+{
+	double in[3] = { (double)t.population, config_.townImportance(t.id), t.outpost ? 1.0 : 0.0 };
+	return std::max(0.0, finiteOr(config_.formulas.eval(F_GARRISON_STRENGTH, in), 0));
 }
 
 std::string Simulation::factionName(const FactionId& f) const
@@ -461,19 +480,22 @@ void Simulation::updateWars(double days)
 
 // ---- battles -----------------------------------------------------------------
 
+// Attacks share the offense part of the cap; counter-forces can also use the
+// reserve, so a town can always be defended while attacks fill the world.
 bool Simulation::canLaunch(const Battle& b) const
 {
-	int cap = offenseCapacity();
-	if (state_.activeSquads() + (int)b.squads.size() > cap) return false;
-	const FactionProfile* p = profile(b.attacker);
-	if (p && p->maxSquads > 0 && state_.activeSquads(b.attacker) + (int)b.squads.size() > p->maxSquads) return false;
+	int n = (int)b.squads.size();
+	if (state_.activeSquads() + n > config_.settings.maxWarSquads) return false;
+	if (b.role == ROLE_ATTACK && state_.activeAttackSquads() + n > offenseCapacity()) return false;
+	const FactionProfile* p = profile(b.owner());
+	if (p && p->maxSquads > 0 && state_.activeSquads(b.owner()) + n > p->maxSquads) return false;
 	return true;
 }
 
 bool Simulation::launch(Battle& b)
 {
 	// Wealth may have dropped while queued: shed the priciest squads until it fits.
-	FactionState& s = fstate(b.attacker);
+	FactionState& s = fstate(b.owner());
 	while (!b.squads.empty() && b.spent > s.wealth)
 	{
 		std::map<SquadId, SquadProfile>::const_iterator sq = config_.squads.find(b.squads.back());
@@ -490,18 +512,33 @@ bool Simulation::launch(Battle& b)
 	order.targetTown = b.targetTown;
 	order.squads = b.squads;
 	order.strength = b.spent;
+	if (b.role == ROLE_DEFEND)
+	{
+		const Battle* attack = state_.findBattle(b.answers);
+		order.defending = true;
+		order.answersHandle = attack ? attack->handle : 0;
+	}
 	int handle = world_.launchAttack(order);
 	if (handle <= 0)
 	{
-		log_.warn("sim", "Kenshi refused the campaign for " + factionName(b.attacker) + " against " + townName(b.targetTown));
+		log_.warn("sim", "Kenshi refused the campaign for " + factionName(b.owner()) +
+			(b.role == ROLE_DEFEND ? " defending " : " against ") + townName(b.targetTown));
 		return false;
 	}
 	b.handle = handle;
 	b.status = BATTLE_ACTIVE;
 	s.wealth = std::max(0.0, s.wealth - b.spent);
+	if (b.role == ROLE_DEFEND)
+	{
+		++state_.stats.counterForces;
+		log_.info("sim", factionName(b.defender) + " sends " + squadCount(b.squads.size()) + " (" + toString(b.spent) +
+			") from " + townName(b.homeTown) + " to defend " + townName(b.targetTown) + (b.surge ? ", surge" : ""));
+		notify(factionName(b.defender) + " is sending troops to defend " + townName(b.targetTown) + ".", b.attacker, b.defender, false);
+		return true;
+	}
 	++state_.stats.battlesLaunched;
 	log_.info("sim", factionName(b.attacker) + " attacks " + townName(b.targetTown) + " with " +
-		toString(b.squads.size()) + " squads (" + toString(b.spent) + ")" + (b.surge ? ", surge" : ""));
+		squadCount(b.squads.size()) + " (" + toString(b.spent) + ")" + (b.surge ? ", surge" : ""));
 	notify(factionName(b.attacker) + " is raiding " + townName(b.targetTown) + ".", b.attacker, b.defender, false);
 	return true;
 }
@@ -656,6 +693,106 @@ void Simulation::planBattle(const FactionId& attacker, const FactionId& defender
 	state_.battles.push_back(b);
 }
 
+// A defender sees each attack on its towns and guesses its strength, with
+// an error that shrinks as the attackers get closer. If the guess beats the
+// garrison plus the counter-forces already sent, it sends another. It looks
+// again whenever the error would halve, so a low first guess can still be
+// corrected by a second, late counter-force.
+void Simulation::defendTowns()
+{
+	size_t count = state_.battles.size();   // counter-forces sent below are appended
+	for (size_t i = 0; i < count; ++i)
+	{
+		const Battle& b = state_.battles[i];
+		if (b.role != ROLE_ATTACK || b.status != BATTLE_ACTIVE) continue;
+		const WorldTown* target = town(b.targetTown);
+		const FactionProfile* pd = profile(b.defender);
+		if (!target || target->owner != b.defender || !pd || !pd->enabled) continue;
+
+		double x = target->x, y = target->y;
+		if (!world_.campaignPosition(b.handle, x, y))
+		{
+			const WorldTown* home = town(b.homeTown);
+			if (home) { x = home->x; y = home->y; }
+		}
+		double in[1] = { distanceToNearestTown(b.defender, x, y) };
+		double error = clampd(finiteOr(config_.formulas.eval(F_ESTIMATE_ERROR, in), 0), 0, 0.95);
+		if (b.estimate >= 0 && error > b.estimateError * 0.5) continue;
+
+		double estimate = b.spent * rng_.range(1 - error, 1 + error);
+		state_.battles[i].estimate = estimate;
+		state_.battles[i].estimateError = error;
+
+		double committed = garrisonStrength(*target);
+		for (size_t k = 0; k < count; ++k)
+		{
+			const Battle& d = state_.battles[k];
+			if (d.role == ROLE_DEFEND && d.answers == b.id) committed += d.spent;
+		}
+		double shortfall = estimate - committed;
+		log_.debug("sim", factionName(b.defender) + " guesses the attack on " + target->name + " at " + toString(estimate) +
+			" (+/-" + toString((int)(error * 100)) + "%), against " + toString(committed) + " on hand");
+		if (shortfall > 0)
+		{
+			Battle attack = b;   // sendCounterForce appends to the list b lives in
+			sendCounterForce(attack, *target, shortfall);
+		}
+	}
+}
+
+void Simulation::sendCounterForce(const Battle& attack, const WorldTown& target, double shortfall)
+{
+	const FactionId& f = attack.defender;
+	const FactionProfile* p = profile(f);
+	const Settings& set = config_.settings;
+	FactionState& s = fstate(f);
+	const std::vector<const SquadProfile*>& squads = warSquads_[f];
+	if (!p || squads.empty()) return;
+
+	// It walks from the nearest other town; a faction with one town has only its garrison.
+	const WorldTown* source = nearestOwnTown(f, target, &target);
+	if (!source) return;
+
+	double importance = config_.townImportance(target.id);
+	double in[4] = { s.wealth, p->defenceGreed, shortfall, importance };
+	double budget = clampd(finiteOr(config_.formulas.eval(F_DEFENSE_BUDGET, in), 0), 0, s.wealth);
+	double surgeChance = p->surgeChance >= 0 ? p->surgeChance : set.surgeChance;
+	double surgeMult = p->surgeMultiplier >= 0 ? p->surgeMultiplier : set.surgeMultiplier;
+	bool surge = rng_.chance(surgeChance);
+	if (surge) budget = std::min(s.wealth, budget * surgeMult);
+	if (budget < squads.front()->cost) return;
+
+	int room = set.maxWarSquads - state_.activeSquads();
+	if (p->maxSquads > 0) room = std::min(room, p->maxSquads - state_.activeSquads(f));
+	if (room <= 0) return;
+
+	Battle b;
+	b.id = state_.nextBattleId++;
+	b.role = ROLE_DEFEND;
+	b.answers = attack.id;
+	b.attacker = attack.attacker;
+	b.defender = f;
+	b.homeTown = source->id;
+	b.targetTown = target.id;
+	b.createdDay = now_;
+	b.surge = surge;
+
+	// Fill the budget with the strongest squads that still fit.
+	double left = budget;
+	while ((int)b.squads.size() < room)
+	{
+		size_t affordable = 0;
+		while (affordable < squads.size() && squads[affordable]->cost <= left) ++affordable;
+		if (!affordable) break;
+		const SquadProfile* pick = squads[affordable - 1];
+		b.squads.push_back(pick->id);
+		b.spent += pick->cost;
+		left -= pick->cost;
+	}
+	if (b.squads.empty()) return;
+	if (launch(b)) state_.battles.push_back(b);
+}
+
 void Simulation::collectResults()
 {
 	std::vector<CampaignResult> results;
@@ -675,8 +812,16 @@ void Simulation::collectResults()
 		Battle b = state_.battles[idx];
 		state_.battles.erase(state_.battles.begin() + idx);
 
-		double survivors = clampd(res.attackerSurvivors, 0, 1);
-		addWealth(b.attacker, b.spent * survivors * kSurvivorRefund);
+		double survivors = clampd(finiteOr(res.survivors, 0), 0, 1);
+		addWealth(b.owner(), b.spent * survivors * kSurvivorRefund);
+
+		// A counter-force's fight is scored with the attack it answered.
+		if (b.role == ROLE_DEFEND)
+		{
+			log_.debug("sim", factionName(b.defender) + "'s counter-force at " + townName(b.targetTown) + " is back (" +
+				toString((int)(survivors * 100)) + "% survived)");
+			continue;
+		}
 
 		if (res.outcome == OUTCOME_CANCELLED)
 		{
@@ -779,6 +924,8 @@ std::vector<std::string> checkInvariants(const Simulation& sim, const IWorld& wo
 
 	if (st.activeSquads() > cfg.settings.maxWarSquads)
 		bad.push_back("live war squads " + toString(st.activeSquads()) + " above maxWarSquads " + toString(cfg.settings.maxWarSquads));
+	if (st.activeAttackSquads() > sim.offenseCapacity())
+		bad.push_back("live attack squads " + toString(st.activeAttackSquads()) + " eat into the defense reserve");
 	for (size_t i = 0; i < st.battles.size(); ++i)
 	{
 		const Battle& b = st.battles[i];
@@ -786,9 +933,18 @@ std::vector<std::string> checkInvariants(const Simulation& sim, const IWorld& wo
 		if (b.status == BATTLE_ACTIVE && b.squads.empty()) bad.push_back("active battle with no squads: " + toString(b.id));
 		if (b.status == BATTLE_QUEUED && !sim.pairActive(b.attacker, b.defender))
 			bad.push_back("queued battle involving an inactive faction: " + toString(b.id));
-		const FactionProfile* p = cfg.faction(b.attacker);
-		if (p && p->maxSquads > 0 && st.activeSquads(b.attacker) > p->maxSquads)
-			bad.push_back("faction squad cap exceeded: " + b.attacker);
+		if (b.role == ROLE_DEFEND)
+		{
+			const Battle* a = st.findBattle(b.answers);
+			if (b.status != BATTLE_ACTIVE) bad.push_back("queued counter-force: " + toString(b.id));
+			if (!a || a->role != ROLE_ATTACK || a->status != BATTLE_ACTIVE)
+				bad.push_back("counter-force " + toString(b.id) + " outlived the attack it answers");
+			else if (a->targetTown != b.targetTown || a->defender != b.defender)
+				bad.push_back("counter-force " + toString(b.id) + " is not at the attacked town");
+		}
+		const FactionProfile* p = cfg.faction(b.owner());
+		if (p && p->maxSquads > 0 && st.activeSquads(b.owner()) > p->maxSquads)
+			bad.push_back("faction squad cap exceeded: " + b.owner());
 	}
 	return bad;
 }

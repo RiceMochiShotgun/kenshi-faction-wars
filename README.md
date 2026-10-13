@@ -2,7 +2,7 @@
 
 Dynamic wars between Kenshi's factions, built on Kenshi's own systems (relations, war flags, campaigns, towns) so the war is visible through vanilla mechanics and stays compatible with other mods.
 
-**Status:** phase 1. The simulation core runs (wealth, relations, war and peace, attacks, saving) and is tested against a fake world. The in-game plugin isn't written yet.
+**Status:** phase 4 in progress. The simulation core runs (wealth, relations, war and peace, attacks, town defense with counter-forces, saving) and is tested against a fake world. The in-game plugin isn't written yet.
 
 ## How it's built
 

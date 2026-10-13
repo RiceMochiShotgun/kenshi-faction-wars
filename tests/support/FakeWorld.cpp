@@ -102,13 +102,32 @@ int FakeWorld::launchAttack(const fw::AttackOrder& order)
 	Campaign c;
 	c.handle = nextHandle_++;
 	c.order = order;
+	c.departDay = day_;
 	c.arriveDay = day_ + std::max(1.0, std::sqrt(dx * dx + dy * dy) / travelSpeed);
+	c.fromX = home->x;
+	c.fromY = home->y;
+	c.toX = target->x;
+	c.toY = target->y;
 	campaigns_.push_back(c);
 	++launched_;
 	return c.handle;
 }
 
-void FakeWorld::finishCampaign(int handle, fw::CampaignOutcome outcome, double survivors)
+bool FakeWorld::campaignPosition(int handle, double& x, double& y) const
+{
+	for (size_t i = 0; i < campaigns_.size(); ++i)
+	{
+		const Campaign& c = campaigns_[i];
+		if (c.handle != handle) continue;
+		double t = std::min(1.0, std::max(0.0, (day_ - c.departDay) / std::max(1e-9, c.arriveDay - c.departDay)));
+		x = c.fromX + (c.toX - c.fromX) * t;
+		y = c.fromY + (c.toY - c.fromY) * t;
+		return true;
+	}
+	return false;
+}
+
+void FakeWorld::finish(int handle, fw::CampaignOutcome outcome, double survivors)
 {
 	for (size_t i = 0; i < campaigns_.size(); ++i)
 	{
@@ -116,38 +135,81 @@ void FakeWorld::finishCampaign(int handle, fw::CampaignOutcome outcome, double s
 		fw::CampaignResult r;
 		r.handle = handle;
 		r.outcome = outcome;
-		r.attackerSurvivors = survivors;
+		r.survivors = survivors;
 		finished_.push_back(r);
 		campaigns_.erase(campaigns_.begin() + i);
 		return;
 	}
 }
 
+void FakeWorld::endCounterForces(int attackHandle, fw::CampaignOutcome outcome, double survivors)
+{
+	std::vector<int> handles;
+	for (size_t i = 0; i < campaigns_.size(); ++i)
+		if (campaigns_[i].order.defending && campaigns_[i].order.answersHandle == attackHandle) handles.push_back(campaigns_[i].handle);
+	for (size_t i = 0; i < handles.size(); ++i) finish(handles[i], outcome, survivors);
+}
+
+void FakeWorld::finishCampaign(int handle, fw::CampaignOutcome outcome, double survivors)
+{
+	finish(handle, outcome, survivors);
+	endCounterForces(handle, outcome, 1.0);
+}
+
+// The attack at `index` has reached its target: fight it out with the
+// garrison and every counter-force already there.
+void FakeWorld::resolve(size_t index)
+{
+	Campaign c = campaigns_[index];
+	const fw::WorldTown* t = town(c.order.targetTown);
+	double defense = t ? t->population * garrisonPerResident : 0;
+	std::vector<int> arrived, late;
+	for (size_t i = 0; i < campaigns_.size(); ++i)
+	{
+		const Campaign& d = campaigns_[i];
+		if (!d.order.defending || d.order.answersHandle != c.handle) continue;
+		if (d.arriveDay <= c.arriveDay) { defense += d.order.strength; arrived.push_back(d.handle); }
+		else late.push_back(d.handle);
+	}
+
+	double attack = c.order.strength * rng_.range(0.6, 1.4);
+	defense *= rng_.range(0.6, 1.4);
+	fw::CampaignOutcome outcome;
+	double attackers, defenders;
+	if (attack > defense)
+	{
+		outcome = fw::OUTCOME_ATTACKER_WON;
+		attackers = 1.0 - 0.5 * defense / attack;
+		defenders = 0.5 * defense / attack * rng_.uniform();
+	}
+	else
+	{
+		outcome = fw::OUTCOME_DEFENDER_WON;
+		attackers = 0.5 * attack / std::max(defense, 1e-9) * rng_.uniform();
+		defenders = 1.0 - 0.5 * attack / std::max(defense, 1e-9);
+	}
+	finish(c.handle, outcome, attackers);
+	for (size_t i = 0; i < arrived.size(); ++i) finish(arrived[i], outcome, defenders);
+	// Still on the road: they turn back unharmed.
+	for (size_t i = 0; i < late.size(); ++i) finish(late[i], fw::OUTCOME_CANCELLED, 1.0);
+}
+
 void FakeWorld::advance(double days)
 {
 	day_ += days;
-	for (size_t i = 0; i < campaigns_.size(); )
+	// Earliest arrival first, so counter-forces are counted against the
+	// attack they were sent for.
+	for (;;)
 	{
-		Campaign& c = campaigns_[i];
-		if (c.arriveDay > day_) { ++i; continue; }
-		const fw::WorldTown* t = town(c.order.targetTown);
-		double garrison = t ? t->population * garrisonPerResident : 0;
-		double attack = c.order.strength * rng_.range(0.6, 1.4);
-		double defense = garrison * rng_.range(0.6, 1.4);
-		fw::CampaignResult r;
-		r.handle = c.handle;
-		if (attack > defense)
+		size_t next = campaigns_.size();
+		for (size_t i = 0; i < campaigns_.size(); ++i)
 		{
-			r.outcome = fw::OUTCOME_ATTACKER_WON;
-			r.attackerSurvivors = 1.0 - 0.5 * defense / attack;
+			const Campaign& c = campaigns_[i];
+			if (c.order.defending || c.arriveDay > day_) continue;
+			if (next == campaigns_.size() || c.arriveDay < campaigns_[next].arriveDay) next = i;
 		}
-		else
-		{
-			r.outcome = fw::OUTCOME_DEFENDER_WON;
-			r.attackerSurvivors = 0.5 * attack / std::max(defense, 1e-9) * rng_.uniform();
-		}
-		finished_.push_back(r);
-		campaigns_.erase(campaigns_.begin() + i);
+		if (next == campaigns_.size()) break;
+		resolve(next);
 	}
 }
 

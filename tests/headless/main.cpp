@@ -38,7 +38,8 @@ void printYear(int year, const Simulation& sim, const FakeWorld& w)
 	const WarStats& s = sim.state().stats;
 	std::cout << "Year " << year << ": " << wars << " wars now, " << s.warsDeclared << " declared, "
 		<< s.peacesMade << " peace, " << s.battlesLaunched << " battles (" << s.attackerWins << " raids won, "
-		<< s.defenderWins << " repelled, " << s.battlesCancelled << " cancelled, " << s.battlesExpired << " expired)\n";
+		<< s.defenderWins << " repelled, " << s.battlesCancelled << " cancelled, " << s.battlesExpired << " expired), "
+		<< s.counterForces << " counter-forces\n";
 	std::cout << "  wealth:";
 	for (size_t i = 0; i < fs.size(); ++i)
 	{
