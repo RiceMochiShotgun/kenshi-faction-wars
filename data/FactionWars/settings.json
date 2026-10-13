@@ -1,0 +1,13 @@
+// Global settings. Placeholder values; tuned during development.
+{
+  "temperature": 1.0,               // Calm 0.5 · Normal 1.0 · Chaotic 2.0
+  "tickDays": 1,
+  "factionMeetRequirement": true,
+  "showUnmetFactions": false,
+  "maxWarSquads": 20,
+  "defenseReserve": 0.25,           // share of the squad cap kept for defense
+  "surgeChance": 0.1,
+  "surgeMultiplier": 1.5,
+  "notifications": "nearby",        // off · nearby · known · all
+  "debug": false,
+}

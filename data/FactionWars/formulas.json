@@ -1,0 +1,21 @@
+// Battle math as expressions. Logic (step order, squad filling, queue) stays in code.
+// A formula that fails to parse falls back to the built-in default and is logged.
+// Placeholder weights; tuned during development.
+{
+  "targetScore":      "w_rel*(-relation) + w_opp*opportunistic*wealthGap + w_imp*importance - w_dist*distance - w_dorm*dormancy",
+  "offenseBudget":    "wealth * offenseGreed",
+  "defenseBudget":    "min(wealth * defenceGreed, shortfall * defenseMargin)",
+  "joinHelpChance":   "friendlyJoin * (relationWithSide / 100) * distanceFalloff",
+  "joinAttackChance": "hostileJoin * (-relationWithTarget / 100) * distanceFalloff",
+  "estimateError":    "0.05 + 0.4 * min(distanceToTown / 5000, 1)",
+  "wealthGrowth":     "wealthGrowth * (1 - wealth / maxWealth)",
+
+  "weights": {
+    "w_rel": 1.0,
+    "w_opp": 0.5,
+    "w_imp": 10,
+    "w_dist": 0.002,
+    "w_dorm": 0.3,
+    "defenseMargin": 1.2,
+  },
+}
