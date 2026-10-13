@@ -1,0 +1,18 @@
+// Town importance (0.x outpost · 1.x military outpost · 2.x minor city ·
+// 3.x major city · 4.x capital). Towns not listed get a guess from size.
+// Placeholder values.
+{
+  "towns": {
+    "Heft": 4.0,
+    "Stoat": 3.1,
+    "Sho-Battai": 2.5,
+    "Brink": 2.3,
+    "Okran's Pride": 4.0,
+    "Blister Hill": 3.2,
+    "Bad Teeth": 2.4,
+    "Stack": 2.6,
+    "Admag": 4.0,
+    "Squin": 3.0,
+    "World's End": 3.0,
+  },
+}

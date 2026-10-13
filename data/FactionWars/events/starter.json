@@ -1,0 +1,36 @@
+// World events (feature doc §9b). Loaded and merged now; the event engine
+// that runs them comes in a later phase.
+[
+  {
+    "id": "opportunistic_expansion",
+    "name": "Opportunistic expansion",
+    "weight": 10,
+    "cooldownDays": 30,
+    "notify": "{actor} eyes the lands of {target}.",
+    "actor": [
+      { "stat": "wealthRatio", "op": ">=", "value": 0.7 },
+      { "stat": "opportunistic", "op": ">=", "value": 40 },
+      { "stat": "freeWarSlots", "op": ">=", "value": 1 },
+    ],
+    "target": [
+      { "stat": "relationWithActor", "op": "between", "value": [-20, 20] },
+      { "stat": "distanceToActor", "op": "<=", "value": 3000 },
+      { "stat": "strengthVsActor", "op": "<", "value": 1.0 },
+    ],
+    "effects": [
+      { "type": "relation", "between": ["actor", "target"], "change": -30 },
+      { "type": "declareWar", "attacker": "actor", "defender": "target", "chance": 0.5 },
+    ],
+  },
+  {
+    "id": "hardship",
+    "name": "Hardship",
+    "weight": 5,
+    "durationDays": 20,
+    "actor": [{ "stat": "random" }],
+    "effects": [
+      { "type": "modify", "who": "actor", "stat": "wealthGrowth", "multiply": 0.5 },
+      { "type": "modify", "who": "actor", "stat": "opportunistic", "add": 20 },
+    ],
+  },
+]
