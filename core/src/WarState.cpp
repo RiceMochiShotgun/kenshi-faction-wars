@@ -49,8 +49,23 @@ int WarState::activeSquads(const FactionId& f) const
 {
 	int n = 0;
 	for (size_t i = 0; i < battles.size(); ++i)
-		if (battles[i].status == BATTLE_ACTIVE && battles[i].attacker == f) n += (int)battles[i].squads.size();
+		if (battles[i].status == BATTLE_ACTIVE && battles[i].owner() == f) n += (int)battles[i].squads.size();
 	return n;
+}
+
+int WarState::activeAttackSquads() const
+{
+	int n = 0;
+	for (size_t i = 0; i < battles.size(); ++i)
+		if (battles[i].status == BATTLE_ACTIVE && battles[i].role == ROLE_ATTACK) n += (int)battles[i].squads.size();
+	return n;
+}
+
+const Battle* WarState::findBattle(int id) const
+{
+	for (size_t i = 0; i < battles.size(); ++i)
+		if (battles[i].id == id) return &battles[i];
+	return 0;
 }
 
 std::string WarState::toJson() const
@@ -95,6 +110,7 @@ std::string WarState::toJson() const
 		key(w, "id"); w.Int(b.id);
 		key(w, "handle"); w.Int(b.handle);
 		key(w, "status"); w.String(b.status == BATTLE_ACTIVE ? "active" : "queued");
+		key(w, "role"); w.String(b.role == ROLE_DEFEND ? "defend" : "attack");
 		key(w, "attacker"); putStr(w, b.attacker);
 		key(w, "defender"); putStr(w, b.defender);
 		key(w, "homeTown"); putStr(w, b.homeTown);
@@ -105,6 +121,9 @@ std::string WarState::toJson() const
 		key(w, "spent"); w.Double(b.spent);
 		key(w, "createdDay"); w.Double(b.createdDay);
 		key(w, "surge"); w.Bool(b.surge);
+		key(w, "answers"); w.Int(b.answers);
+		key(w, "estimate"); w.Double(b.estimate);
+		key(w, "estimateError"); w.Double(b.estimateError);
 		w.EndObject();
 	}
 	w.EndArray();
@@ -117,6 +136,7 @@ std::string WarState::toJson() const
 	key(w, "defenderWins"); w.Int(stats.defenderWins);
 	key(w, "battlesCancelled"); w.Int(stats.battlesCancelled);
 	key(w, "battlesExpired"); w.Int(stats.battlesExpired);
+	key(w, "counterForces"); w.Int(stats.counterForces);
 	w.EndObject();
 
 	w.EndObject();
@@ -183,6 +203,7 @@ bool WarState::fromJson(const std::string& json, std::string& error)
 			b.id = (int)getNum(*it, "id", 0);
 			b.handle = (int)getNum(*it, "handle", 0);
 			b.status = getStr(*it, "status") == "active" ? BATTLE_ACTIVE : BATTLE_QUEUED;
+			b.role = getStr(*it, "role") == "defend" ? ROLE_DEFEND : ROLE_ATTACK;
 			b.attacker = getStr(*it, "attacker");
 			b.defender = getStr(*it, "defender");
 			b.homeTown = getStr(*it, "homeTown");
@@ -196,6 +217,9 @@ bool WarState::fromJson(const std::string& json, std::string& error)
 			b.spent = getNum(*it, "spent", 0);
 			b.createdDay = getNum(*it, "createdDay", 0);
 			b.surge = getBool(*it, "surge", false);
+			b.answers = (int)getNum(*it, "answers", 0);
+			b.estimate = getNum(*it, "estimate", -1);
+			b.estimateError = getNum(*it, "estimateError", -1);
 			s.battles.push_back(b);
 		}
 	}
@@ -211,6 +235,7 @@ bool WarState::fromJson(const std::string& json, std::string& error)
 		s.stats.defenderWins = (int)getNum(o, "defenderWins", 0);
 		s.stats.battlesCancelled = (int)getNum(o, "battlesCancelled", 0);
 		s.stats.battlesExpired = (int)getNum(o, "battlesExpired", 0);
+		s.stats.counterForces = (int)getNum(o, "counterForces", 0);
 	}
 
 	*this = s;

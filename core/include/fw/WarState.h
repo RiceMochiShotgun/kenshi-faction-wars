@@ -28,21 +28,32 @@ struct PairState
 };
 
 enum BattleStatus { BATTLE_QUEUED, BATTLE_ACTIVE };
+enum BattleRole { ROLE_ATTACK, ROLE_DEFEND };
 
+// One force in the field or waiting to set out. An attack belongs to
+// `attacker`; a counter-force (ROLE_DEFEND) belongs to `defender` and
+// answers the attack `answers`. Counter-forces are never queued.
 struct Battle
 {
 	int id;
 	int handle;              // vanilla campaign handle while active
 	BattleStatus status;
+	BattleRole role;
 	FactionId attacker;
 	FactionId defender;
-	TownId homeTown;
-	TownId targetTown;
+	TownId homeTown;         // where the squads set out from
+	TownId targetTown;       // the town under attack
 	std::vector<SquadId> squads;
-	double spent;            // wealth taken from the attacker
+	double spent;            // wealth taken from the force's owner
 	double createdDay;
 	bool surge;
-	Battle() : id(0), handle(0), status(BATTLE_QUEUED), spent(0), createdDay(0), surge(false) {}
+	int answers;             // counter-force: id of the attack it answers
+	double estimate;         // attack: the defender's guess of its strength, < 0 = not seen yet
+	double estimateError;    // attack: error range of that guess
+	Battle() : id(0), handle(0), status(BATTLE_QUEUED), role(ROLE_ATTACK), spent(0), createdDay(0), surge(false),
+		answers(0), estimate(-1), estimateError(-1) {}
+
+	const FactionId& owner() const { return role == ROLE_DEFEND ? defender : attacker; }
 };
 
 struct WarStats
@@ -54,13 +65,14 @@ struct WarStats
 	int defenderWins;
 	int battlesCancelled;
 	int battlesExpired;
+	int counterForces;       // counter-forces sent to defend a town
 	WarStats() : warsDeclared(0), peacesMade(0), battlesLaunched(0), attackerWins(0), defenderWins(0),
-		battlesCancelled(0), battlesExpired(0) {}
+		battlesCancelled(0), battlesExpired(0), counterForces(0) {}
 };
 
 struct WarState
 {
-	enum { kVersion = 1 };
+	enum { kVersion = 2 };
 
 	bool initialized;
 	double lastTickDay;
@@ -76,8 +88,10 @@ struct WarState
 	PairState& pair(const FactionId& a, const FactionId& b) { return pairs[pairKey(a, b)]; }
 	const PairState* findPair(const FactionId& a, const FactionId& b) const;
 
-	int activeSquads() const;
-	int activeSquads(const FactionId& f) const;
+	int activeSquads() const;                     // every live squad
+	int activeSquads(const FactionId& f) const;   // live squads owned by f
+	int activeAttackSquads() const;               // live squads on attacks
+	const Battle* findBattle(int id) const;
 
 	std::string toJson() const;
 	// On failure leaves the state unchanged and fills `error`.

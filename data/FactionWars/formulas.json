@@ -18,8 +18,9 @@
   // wealth, offenseGreed, importance
   "offenseBudget": "wealth * offenseGreed",
 
-  // wealth, defenceGreed, shortfall (used once defense is built)
-  "defenseBudget": "min(wealth * defenceGreed, shortfall * defenseMargin)",
+  // wealth, defenceGreed, shortfall, importance -> what a defender spends on a counter-force.
+  // shortfall = estimated attack strength minus the garrison and counter-forces already sent
+  "defenseBudget": "min(wealth * defenceGreed, shortfall * defenseMargin * (1 + importance / 10))",
 
   // friendlyJoin, relationWithSide, distanceFalloff (used once joining is built)
   "joinHelpChance": "friendlyJoin * (relationWithSide / 100) * distanceFalloff",
@@ -27,7 +28,9 @@
   // hostileJoin, relationWithTarget, distanceFalloff, opportunistic, dormancy
   "joinAttackChance": "hostileJoin * (-relationWithTarget / 100) * distanceFalloff * (1 + opportunistic / 200) * (1 + dormancy / 200)",
 
-  // distanceToTown -> how wrong a defender's strength estimate can be (0.1 = ±10%)
+  // distanceToTown -> how wrong a defender's strength estimate can be (0.1 = ±10%).
+  // The distance is from the attackers to the defender's nearest town; the defender
+  // looks again each time the error would halve, and may send another counter-force
   "estimateError": "0.05 + 0.4 * min(distanceToTown / 5000, 1)",
 
   // wealth, maxWealth, wealthGrowth, townImportance (sum over owned towns), townCount, tickDays
@@ -52,6 +55,10 @@
   // outpost, hasHQ (0/1), population -> importance of a town missing from towns/*.json
   "townImportanceGuess": "clamp(if(outpost, 0.5, 2) + hasHQ * 1.5 + min(population, 100) / 100, 0, 4.9)",
 
+  // population, importance, outpost (0/1) -> strength of a town's residents and guards,
+  // on the same scale as squad costs. They defend for free; counter-forces top them up
+  "garrisonStrength": "population * residentStrength",
+
   "weights": {
     "w_rel": 1.0,
     "w_opp": 0.5,
@@ -60,6 +67,7 @@
     "w_dorm": 0.3,
     "battleRate": 0.05,
     "defenseMargin": 1.2,
+    "residentStrength": 0.5,
     "driftScale": 1.0,
     "declareThreshold": -50,
     "peaceThreshold": -20,

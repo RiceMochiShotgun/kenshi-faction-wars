@@ -43,13 +43,15 @@ const char* kHostileProfiles =
 // Busy settings so a few hundred days exercise everything.
 const char* kBusyFormulas = "{ \"weights\": { \"warDeclareRate\": 0.5, \"battleRate\": 0.5, \"peaceRate\": 0.02 } }";
 
-Config makeConfig(const FakeWorld& w, const std::string& settings, const std::string& extraFaction = std::string())
+Config makeConfig(const FakeWorld& w, const std::string& settings, const std::string& extraFaction = std::string(),
+	const std::string& extraFormulas = std::string())
 {
 	ConfigLoader loader;
 	loader.addFile(LAYER_MAIN, "settings", "settings.json", settings.empty() ? "{ \"seed\": 42 }" : settings);
 	loader.addFile(LAYER_MAIN, "formulas", "formulas.json", kBusyFormulas);
 	loader.addFile(LAYER_MAIN, "profiles", "factions/p.json", kHostileProfiles);
 	if (!extraFaction.empty()) loader.addFile(LAYER_USER, "extra", "factions/x.json", extraFaction);
+	if (!extraFormulas.empty()) loader.addFile(LAYER_USER, "extra", "formulas.json", extraFormulas);
 	Config c;
 	Log log;
 	loader.build(w, c, log);
@@ -70,6 +72,37 @@ int runDays(FakeWorld& w, Simulation& sim, int days)
 		violations += (int)bad.size();
 	}
 	return violations;
+}
+
+// testWorld plus a second Beta town to send counter-forces from.
+void defenseWorld(FakeWorld& w)
+{
+	testWorld(w);
+	w.addTown("b2", "Beta Fort", "b", 9000, 3000, 30);
+}
+
+// Runs until Alpha has an attack on Beta in the field; returns its id or 0.
+int waitForAttack(FakeWorld& w, Simulation& sim, int maxDays)
+{
+	for (int d = 0; d < maxDays; ++d)
+	{
+		w.advance(1);
+		sim.update();
+		for (size_t i = 0; i < sim.state().battles.size(); ++i)
+		{
+			const Battle& b = sim.state().battles[i];
+			if (b.role == ROLE_ATTACK && b.status == BATTLE_ACTIVE && b.attacker == "a" && b.defender == "b") return b.id;
+		}
+	}
+	return 0;
+}
+
+std::vector<const Battle*> counterForces(const Simulation& sim, int attackId)
+{
+	std::vector<const Battle*> out;
+	for (size_t i = 0; i < sim.state().battles.size(); ++i)
+		if (sim.state().battles[i].role == ROLE_DEFEND && sim.state().battles[i].answers == attackId) out.push_back(&sim.state().battles[i]);
+	return out;
 }
 
 } // namespace
@@ -194,18 +227,20 @@ TEST(sim_squad_cap_queues_attacks)
 	Simulation sim(w, log);
 	sim.setConfig(makeConfig(w, "{ \"seed\": 9, \"maxWarSquads\": 4, \"defenseReserve\": 0.25 }"));
 	sim.startNew();
-	int maxSeen = 0;
+	int maxSeen = 0, maxAttack = 0;
 	bool sawQueued = false;
 	for (int d = 0; d < 300; ++d)
 	{
 		w.advance(1);
 		sim.update();
 		maxSeen = std::max(maxSeen, sim.state().activeSquads());
+		maxAttack = std::max(maxAttack, sim.state().activeAttackSquads());
 		for (size_t i = 0; i < sim.state().battles.size(); ++i)
 			sawQueued = sawQueued || sim.state().battles[i].status == BATTLE_QUEUED;
 		CHECK(checkInvariants(sim, w).empty());
 	}
-	CHECK(maxSeen <= 3);     // 4 * (1 - 0.25)
+	CHECK(maxAttack <= 3);   // 4 * (1 - 0.25)
+	CHECK(maxSeen <= 4);     // counter-forces may use the reserve
 	CHECK(sawQueued);
 }
 
@@ -384,4 +419,115 @@ TEST(sim_sample_world_two_years)
 	sim.setConfig(c);
 	sim.startNew();
 	CHECK_EQ(runDays(w, sim, 730), 0);
+}
+
+TEST(sim_defender_sends_a_counter_force_from_another_town)
+{
+	FakeWorld w;
+	defenseWorld(w);
+	w.travelSpeed = 1;   // nothing arrives by itself
+	Log log;
+	Simulation sim(w, log);
+	// Only Alpha attacks, so every counter-force answers it.
+	sim.setConfig(makeConfig(w, "{ \"seed\": 42, \"maxWarSquads\": 1000 }",
+		"[ { \"faction\": \"b\", \"offenseGreed\": 0 }, { \"faction\": \"c\", \"enabled\": false } ]"));
+	sim.startNew();
+	sim.declareWar("a", "b");
+	int id = waitForAttack(w, sim, 200);
+	CHECK(id != 0);
+	if (!id) return;
+
+	const Battle* attack = sim.state().findBattle(id);
+	CHECK(attack->estimate > 0);
+	CHECK(attack->estimateError > 0);
+	std::vector<const Battle*> help = counterForces(sim, id);
+	CHECK(!help.empty());
+	if (help.empty()) return;
+	const Battle& d = *help[0];
+	CHECK_EQ(d.defender, std::string("b"));
+	CHECK_EQ(d.homeTown, std::string("b2"));      // not the town under attack
+	CHECK_EQ(d.targetTown, attack->targetTown);
+	CHECK(d.spent > 0);
+	CHECK_EQ(sim.state().stats.counterForces, (int)help.size());
+	// The world got a defending order tied to the attack's campaign.
+	bool found = false;
+	for (size_t i = 0; i < w.campaigns().size(); ++i)
+	{
+		const FakeWorld::Campaign& c = w.campaigns()[i];
+		if (c.handle == d.handle)
+			found = c.order.defending && c.order.answersHandle == attack->handle && c.order.defender == "b";
+	}
+	CHECK(found);
+	CHECK(checkInvariants(sim, w).empty());
+
+	// Ending the attack brings the counter-force home too, refunding survivors.
+	double before = sim.state().factions.find("b")->second.wealth;
+	w.finishCampaign(attack->handle, OUTCOME_DEFENDER_WON, 0.2);
+	sim.tick(0);
+	CHECK(counterForces(sim, id).empty());
+	CHECK(!sim.state().findBattle(id));
+	CHECK(sim.state().factions.find("b")->second.wealth > before);
+	CHECK(checkInvariants(sim, w).empty());
+}
+
+TEST(sim_strong_garrison_needs_no_counter_force)
+{
+	FakeWorld w;
+	defenseWorld(w);
+	w.travelSpeed = 1;
+	Log log;
+	Simulation sim(w, log);
+	sim.setConfig(makeConfig(w, "{ \"seed\": 42, \"maxWarSquads\": 1000 }",
+		"[ { \"faction\": \"b\", \"offenseGreed\": 0 }, { \"faction\": \"c\", \"enabled\": false } ]",
+		"{ \"weights\": { \"residentStrength\": 1000 } }"));
+	sim.startNew();
+	sim.declareWar("a", "b");
+	int id = waitForAttack(w, sim, 200);
+	CHECK(id != 0);
+	CHECK(counterForces(sim, id).empty());
+	CHECK_EQ(sim.state().stats.counterForces, 0);
+}
+
+TEST(sim_strength_estimate_sharpens_as_attackers_close_in)
+{
+	FakeWorld w;
+	defenseWorld(w);
+	w.travelSpeed = 150;   // Alpha Town to Beta Town takes 40 days
+	Log log;
+	Simulation sim(w, log);
+	sim.setConfig(makeConfig(w, "{ \"seed\": 42, \"maxWarSquads\": 1000 }",
+		"[ { \"faction\": \"b\", \"offenseGreed\": 0 }, { \"faction\": \"c\", \"enabled\": false } ]"));
+	sim.startNew();
+	sim.declareWar("a", "b");
+	int id = waitForAttack(w, sim, 200);
+	CHECK(id != 0);
+	if (!id) return;
+	double first = sim.state().findBattle(id)->estimateError;
+	double last = first;
+	for (int d = 0; d < 60 && sim.state().findBattle(id); ++d)
+	{
+		last = sim.state().findBattle(id)->estimateError;
+		w.advance(1);
+		sim.update();
+		CHECK(checkInvariants(sim, w).empty());
+	}
+	CHECK(first > 0.2);    // first seen far away
+	CHECK(last < 0.1);     // looked again near the town
+}
+
+TEST(sim_old_saves_without_defense_fields_still_load)
+{
+	FakeWorld w;
+	testWorld(w);
+	Log log;
+	Simulation sim(w, log);
+	sim.setConfig(makeConfig(w, ""));
+	const char* v1 =
+		"{ \"version\": 1, \"initialized\": true, \"lastTickDay\": 0, \"nextBattleId\": 2,"
+		"  \"battles\": [ { \"id\": 1, \"status\": \"queued\", \"attacker\": \"a\", \"defender\": \"b\","
+		"    \"homeTown\": \"a1\", \"targetTown\": \"b1\", \"squads\": [\"a_s\"], \"spent\": 6, \"createdDay\": 0 } ] }";
+	CHECK(sim.loadState(v1));
+	CHECK_EQ(sim.state().battles.size(), (size_t)1);
+	CHECK(sim.state().battles[0].role == ROLE_ATTACK);
+	CHECK(sim.state().battles[0].estimate < 0);
 }

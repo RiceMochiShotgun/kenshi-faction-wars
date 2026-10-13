@@ -1,5 +1,6 @@
 // The war brain: a periodic tick that grows wealth, drifts relations,
-// declares war and peace, and launches attacks through vanilla campaigns.
+// declares war and peace, launches attacks through vanilla campaigns and
+// sends counter-forces to defend the towns they target.
 // It never touches Kenshi directly; everything goes through IWorld.
 #ifndef FW_SIMULATION_H
 #define FW_SIMULATION_H
@@ -47,6 +48,8 @@ public:
 	bool sworn(const FactionId& a, const FactionId& b, bool allies) const;
 	int warCount(const FactionId& f) const;
 	int offenseCapacity() const;
+	// What a town's residents and guards are worth, on the squad cost scale.
+	double garrisonStrength(const WorldTown& t) const;
 
 	// Apply a relation change with the sworn limits and the -100..100 range.
 	void changeRelation(const FactionId& a, const FactionId& b, double delta);
@@ -78,16 +81,19 @@ private:
 	void updateWars(double days);
 	void processQueue();
 	void planAttacks(double days);
+	void defendTowns();
 	void easeWeariness(double days);
 
 	const FactionProfile* profile(const FactionId& f) const { return config_.faction(f); }
 	FactionState& fstate(const FactionId& f) { return state_.factions[f]; }
 	const WorldTown* town(const TownId& id) const;
 	double distance(const WorldTown& a, const WorldTown& b) const;
-	const WorldTown* nearestOwnTown(const FactionId& f, const WorldTown& target) const;
+	const WorldTown* nearestOwnTown(const FactionId& f, const WorldTown& target, const WorldTown* exclude = 0) const;
+	double distanceToNearestTown(const FactionId& f, double x, double y) const;
 	bool canLaunch(const Battle& b) const;
 	bool launch(Battle& b);
 	void planBattle(const FactionId& attacker, const FactionId& defender, const WorldTown& target);
+	void sendCounterForce(const Battle& attack, const WorldTown& target, double shortfall);
 	void addWealth(const FactionId& f, double delta);
 	void notify(const std::string& text, const FactionId& a, const FactionId& b, bool major);
 	std::string factionName(const FactionId& f) const;

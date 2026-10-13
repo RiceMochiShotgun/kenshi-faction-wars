@@ -1,6 +1,7 @@
-// In-memory IWorld for tests and the headless runner. Campaigns march at a
-// fixed speed and are resolved by comparing attack strength with the town's
-// garrison, with some randomness.
+// In-memory IWorld for tests and the headless runner. Campaigns march in a
+// straight line at a fixed speed. An attack is resolved when it arrives by
+// comparing its strength with the town's garrison plus the counter-forces
+// that got there first, with some randomness.
 #ifndef FW_FAKE_WORLD_H
 #define FW_FAKE_WORLD_H
 
@@ -31,7 +32,8 @@ public:
 	void setSeed(uint64_t s) { rng_.setState(s); }
 	// Every campaign launched from now on fails to start (handle 0).
 	void refuseCampaigns(bool refuse) { refuse_ = refuse; }
-	// Resolve this campaign at once with the given outcome.
+	// Resolve this campaign at once with the given outcome. Finishing an
+	// attack also ends its counter-forces, with the same outcome.
 	void finishCampaign(int handle, fw::CampaignOutcome outcome, double survivors);
 
 	double travelSpeed;          // world units per day
@@ -42,7 +44,8 @@ public:
 	{
 		int handle;
 		fw::AttackOrder order;
-		double arriveDay;
+		double departDay, arriveDay;
+		double fromX, fromY, toX, toY;
 	};
 	const std::vector<Campaign>& campaigns() const { return campaigns_; }
 	const std::vector<std::string>& messages() const { return messages_; }
@@ -63,6 +66,7 @@ public:
 	virtual bool playerHasMet(const fw::FactionId& f) const;
 	virtual int launchAttack(const fw::AttackOrder& order);
 	virtual void pollFinishedCampaigns(std::vector<fw::CampaignResult>& out);
+	virtual bool campaignPosition(int handle, double& x, double& y) const;
 	virtual void notify(const std::string& text) { messages_.push_back(text); }
 
 	bool treaty(const fw::FactionId& a, const fw::FactionId& b) const { return treaty_.count(fw::pairKey(a, b)) != 0; }
@@ -84,6 +88,9 @@ private:
 	std::vector<std::string> messages_;
 
 	const fw::WorldTown* town(const std::string& id) const;
+	void resolve(size_t index);
+	void finish(int handle, fw::CampaignOutcome outcome, double survivors);
+	void endCounterForces(int attackHandle, fw::CampaignOutcome outcome, double survivors);
 };
 
 #endif

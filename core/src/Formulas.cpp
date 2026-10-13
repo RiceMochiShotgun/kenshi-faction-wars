@@ -21,8 +21,8 @@ const Def kDefs[F_COUNT] = {
 		"clamp(score / 100, 0, 1) * battleRate * temperature * tickDays" },
 	{ "offenseBudget", "wealth,offenseGreed,importance",
 		"wealth * offenseGreed" },
-	{ "defenseBudget", "wealth,defenceGreed,shortfall",
-		"min(wealth * defenceGreed, shortfall * defenseMargin)" },
+	{ "defenseBudget", "wealth,defenceGreed,shortfall,importance",
+		"min(wealth * defenceGreed, shortfall * defenseMargin * (1 + importance / 10))" },
 	{ "joinHelpChance", "friendlyJoin,relationWithSide,distanceFalloff",
 		"friendlyJoin * (relationWithSide / 100) * distanceFalloff" },
 	{ "joinAttackChance", "hostileJoin,relationWithTarget,distanceFalloff,opportunistic,dormancy",
@@ -43,6 +43,8 @@ const Def kDefs[F_COUNT] = {
 		"max(1, size * 2)" },
 	{ "townImportanceGuess", "outpost,hasHQ,population",
 		"clamp(if(outpost, 0.5, 2) + hasHQ * 1.5 + min(population, 100) / 100, 0, 4.9)" },
+	{ "garrisonStrength", "population,importance,outpost",
+		"population * residentStrength" },
 };
 
 std::vector<std::string> split(const char* list)
@@ -74,6 +76,7 @@ std::map<std::string, double> Formulas::defaultWeights()
 	w["w_dorm"] = 0.3;
 	w["battleRate"] = 0.05;
 	w["defenseMargin"] = 1.2;
+	w["residentStrength"] = 0.5;
 	w["driftScale"] = 1.0;
 	w["declareThreshold"] = -50;
 	w["peaceThreshold"] = -20;

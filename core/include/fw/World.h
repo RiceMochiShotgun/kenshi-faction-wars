@@ -41,17 +41,22 @@ struct WorldSquad
 	WorldSquad() : size(0) {}
 };
 
-// Everything needed to send one attack through vanilla campaigns.
+// Everything needed to send one force through vanilla campaigns: an attack
+// on an enemy town, or a counter-force marching to defend one of our own.
 struct AttackOrder
 {
 	int battleId;
 	FactionId attacker;
 	FactionId defender;
-	TownId homeTown;
-	TownId targetTown;
+	TownId homeTown;       // where the squads set out from
+	TownId targetTown;     // the town under attack
 	std::vector<SquadId> squads;
 	double strength;       // total squad cost
-	AttackOrder() : battleId(0), strength(0) {}
+	// Counter-force: the squads belong to `defender`, march from homeTown to
+	// targetTown and fight the attack campaign `answersHandle` there.
+	bool defending;
+	int answersHandle;
+	AttackOrder() : battleId(0), strength(0), defending(false), answersHandle(0) {}
 };
 
 enum CampaignOutcome { OUTCOME_ATTACKER_WON, OUTCOME_DEFENDER_WON, OUTCOME_CANCELLED };
@@ -59,9 +64,11 @@ enum CampaignOutcome { OUTCOME_ATTACKER_WON, OUTCOME_DEFENDER_WON, OUTCOME_CANCE
 struct CampaignResult
 {
 	int handle;
+	// For a counter-force, the outcome of the attack it answered, or
+	// OUTCOME_CANCELLED if it never reached the town.
 	CampaignOutcome outcome;
-	double attackerSurvivors;   // 0..1 share of the attack force still alive
-	CampaignResult() : handle(0), outcome(OUTCOME_CANCELLED), attackerSurvivors(0) {}
+	double survivors;      // 0..1 share of this campaign's own force still alive
+	CampaignResult() : handle(0), outcome(OUTCOME_CANCELLED), survivors(0) {}
 };
 
 class IWorld
@@ -91,8 +98,12 @@ public:
 
 	// Start a vanilla campaign. Returns a handle > 0, or 0 if it couldn't start.
 	virtual int launchAttack(const AttackOrder& order) = 0;
-	// Campaigns that ended since the last call.
+	// Campaigns that ended since the last call. When an attack ends, for any
+	// reason, every counter-force answering it ends in the same batch.
 	virtual void pollFinishedCampaigns(std::vector<CampaignResult>& out) = 0;
+	// Where a campaign's squads are now (their average position). False if
+	// the campaign is unknown or its position can't be read.
+	virtual bool campaignPosition(int handle, double& x, double& y) const = 0;
 
 	// Short top-of-screen message. The adapter queues it for the UI thread.
 	virtual void notify(const std::string& text) = 0;
