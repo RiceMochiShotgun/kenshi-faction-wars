@@ -1,13 +1,18 @@
-// Global settings. Placeholder values; tuned during development.
+// Global settings. Read from the main mod and the user folder only.
+// Placeholder values; tuned during development.
 {
   "temperature": 1.0,               // Calm 0.5 · Normal 1.0 · Chaotic 2.0
-  "tickDays": 1,
-  "factionMeetRequirement": true,
+  "tickDays": 1,                    // in-game days per simulation tick
+  "factionMeetRequirement": true,   // factions join the war once the player has met them
   "showUnmetFactions": false,
-  "maxWarSquads": 20,
+  "maxWarSquads": 20,               // live squads sent by this mod, all factions together
   "defenseReserve": 0.25,           // share of the squad cap kept for defense
   "surgeChance": 0.1,
   "surgeMultiplier": 1.5,
+  "defaultWarSlots": 2,
+  "peaceTreatyDays": 30,            // no new war between a pair for this long after peace
+  "queueExpiryDays": 10,            // queued attacks are dropped after this long
   "notifications": "nearby",        // off · nearby · known · all
+  "seed": 0,                        // 0 = random per save; set a number to repeat a run
   "debug": false,
 }

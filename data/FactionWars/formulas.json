@@ -1,14 +1,56 @@
-// Battle math as expressions. Logic (step order, squad filling, queue) stays in code.
-// A formula that fails to parse falls back to the built-in default and is logged.
-// Placeholder weights; tuned during development.
+// Battle and world math as expressions. The step-by-step logic (squad picking,
+// the queue, who joins) stays in code; this file only holds the math.
+//
+// Each formula can use its own inputs (listed above it) plus every weight.
+// Operators: + - * / % ^, < <= > >= == != && || !
+// Functions: min max clamp abs sqrt pow floor ceil round exp log if lerp
+// A formula with a mistake is logged in FactionWars.log and the built-in
+// default is used instead, so a typo can't break a save.
+//
+// Values below are the built-in defaults: placeholders for tuning.
 {
-  "targetScore":      "w_rel*(-relation) + w_opp*opportunistic*wealthGap + w_imp*importance - w_dist*distance - w_dorm*dormancy",
-  "offenseBudget":    "wealth * offenseGreed",
-  "defenseBudget":    "min(wealth * defenceGreed, shortfall * defenseMargin)",
-  "joinHelpChance":   "friendlyJoin * (relationWithSide / 100) * distanceFalloff",
-  "joinAttackChance": "hostileJoin * (-relationWithTarget / 100) * distanceFalloff",
-  "estimateError":    "0.05 + 0.4 * min(distanceToTown / 5000, 1)",
-  "wealthGrowth":     "wealthGrowth * (1 - wealth / maxWealth)",
+  // relation, opportunistic, wealthGap (-1..1), importance, distance, dormancy
+  "targetScore": "w_rel*(-relation) + w_opp*opportunistic*wealthGap + w_imp*importance - w_dist*distance + w_dorm*dormancy",
+
+  // score, temperature, tickDays -> chance per tick of attacking the best target
+  "battleChance": "clamp(score / 100, 0, 1) * battleRate * temperature * tickDays",
+
+  // wealth, offenseGreed, importance
+  "offenseBudget": "wealth * offenseGreed",
+
+  // wealth, defenceGreed, shortfall (used once defense is built)
+  "defenseBudget": "min(wealth * defenceGreed, shortfall * defenseMargin)",
+
+  // friendlyJoin, relationWithSide, distanceFalloff (used once joining is built)
+  "joinHelpChance": "friendlyJoin * (relationWithSide / 100) * distanceFalloff",
+
+  // hostileJoin, relationWithTarget, distanceFalloff, opportunistic, dormancy
+  "joinAttackChance": "hostileJoin * (-relationWithTarget / 100) * distanceFalloff * (1 + opportunistic / 200) * (1 + dormancy / 200)",
+
+  // distanceToTown -> how wrong a defender's strength estimate can be (0.1 = ±10%)
+  "estimateError": "0.05 + 0.4 * min(distanceToTown / 5000, 1)",
+
+  // wealth, maxWealth, wealthGrowth, townImportance (sum over owned towns), townCount, tickDays
+  "wealthIncome": "wealthGrowth * (1 + 0.25 * townImportance) * max(0, 1 - wealth / maxWealth) * tickDays",
+
+  // hostility (pair average), likelyAlly, likelyEnemy, sharedEnemies, atWar, allied (0/1),
+  // noise (-1..1), tickDays -> relation change per tick
+  "relationDrift": "(noise * driftScale - hostility / 100 * 0.3 + likelyAlly * 0.3 - likelyEnemy * 0.3 + sharedEnemies * 0.2 - atWar * 0.2 + allied * 0.2) * tickDays",
+
+  // relation, hostility, dormancy (of the declaring side), sworn (0/1), temperature, tickDays
+  "declareWarChance": "if(relation < declareThreshold || sworn, warDeclareRate * (1 + hostility / 100) * (1 + dormancy / 200), 0) * temperature * tickDays",
+
+  // relation, weariness, warDays, sworn (0/1), tickDays
+  "peaceChance": "if(sworn, 0.2, 1) * peaceRate * (weariness / 5 + warDays / 180 + if(relation > peaceThreshold, 1, 0)) * tickDays",
+
+  // defenderWealth, spent, importance -> wealth the defender loses to a successful raid
+  "raidLoot": "min(defenderWealth * 0.1 * (1 + importance / 4), spent * 2)",
+
+  // size -> cost of a squad that has no cost in squads/*.json
+  "squadCostEstimate": "max(1, size * 2)",
+
+  // outpost, hasHQ (0/1), population -> importance of a town missing from towns/*.json
+  "townImportanceGuess": "clamp(if(outpost, 0.5, 2) + hasHQ * 1.5 + min(population, 100) / 100, 0, 4.9)",
 
   "weights": {
     "w_rel": 1.0,
@@ -16,6 +58,14 @@
     "w_imp": 10,
     "w_dist": 0.002,
     "w_dorm": 0.3,
+    "battleRate": 0.05,
     "defenseMargin": 1.2,
+    "driftScale": 1.0,
+    "declareThreshold": -50,
+    "peaceThreshold": -20,
+    "warDeclareRate": 0.02,
+    "peaceRate": 0.01,
+    "relationHitPerBattle": 5,
+    "lootShare": 0.5,
   },
 }

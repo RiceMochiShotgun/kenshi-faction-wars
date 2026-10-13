@@ -1,0 +1,48 @@
+// Profiles for vanilla factions. Matched by display name for now; switch to
+// FCS string IDs once we read them from the game (names can be ambiguous).
+// All numbers are placeholders for tuning.
+[
+  {
+    "faction": "United Cities",
+    "ignoreMeetRequirement": true,
+    "wealth": 400, "wealthGrowth": 6, "maxWealth": 3000,
+    "offenseGreed": 0.15, "defenceGreed": 0.5,
+    "friendlyJoin": 0.3, "hostileJoin": 0.4,
+    "character": { "hostility": 10, "opportunistic": 60, "dormancy": -10 },
+    "likelyAllies": ["Traders Guild"],
+    "likelyEnemies": ["Flotsam Ninjas", "Anti-Slavers"],
+  },
+  {
+    "faction": "Holy Nation",
+    "ignoreMeetRequirement": true,
+    "wealth": 300, "wealthGrowth": 5, "maxWealth": 2500,
+    "offenseGreed": 0.25, "defenceGreed": 0.5,
+    "friendlyJoin": 0.2, "hostileJoin": 0.5,
+    "character": { "hostility": 60, "opportunistic": -20, "dormancy": 30 },
+    "likelyEnemies": ["Shek Kingdom", "Flotsam Ninjas", "Anti-Slavers", "Tech Hunters"],
+  },
+  {
+    "faction": "Shek Kingdom",
+    "ignoreMeetRequirement": true,
+    "wealth": 250, "wealthGrowth": 4, "maxWealth": 2000,
+    "offenseGreed": 0.3, "defenceGreed": 0.4,
+    "friendlyJoin": 0.4, "hostileJoin": 0.3,
+    "character": { "hostility": 40, "opportunistic": -40, "dormancy": 40 },
+    "likelyEnemies": ["Holy Nation"],
+  },
+  {
+    "faction": "Western Hive",
+    "wealth": 100, "wealthGrowth": 5, "maxWealth": 1000,
+    "offenseGreed": 0.2, "defenceGreed": 0.5,
+    "friendlyJoin": 0.6, "hostileJoin": 0.2,
+    "character": { "hostility": -60, "opportunistic": -60, "dormancy": -60 },
+    "likelyAllies": ["Shek Kingdom"],
+    "likelyEnemies": ["Holy Nation"],
+  },
+  {
+    "faction": "Dust Bandits",
+    "wealth": 50, "wealthGrowth": 1, "maxWealth": 300,
+    "offenseGreed": 0.5, "defenceGreed": 0.2,
+    "character": { "hostility": 80, "opportunistic": 80, "dormancy": 50 },
+  },
+]

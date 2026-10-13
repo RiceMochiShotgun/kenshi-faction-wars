@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  core:
+    name: core (${{ matrix.os }}, ${{ matrix.cxx }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cxx: g++
+          - os: ubuntu-latest
+            cxx: clang++
+          - os: windows-latest
+            cxx: msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Core stays free of game headers
+        if: runner.os == 'Linux'
+        run: |
+          if grep -rnE '#include\s*[<"](kenshi/|core/|Ogre|MyGUI|windows\.h|boost/|Debug\.h)' core/; then
+            echo "core/ must not include KenshiLib, Ogre, MyGUI, Boost or Windows headers"
+            exit 1
+          fi
+
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build --config Release -j 4
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
